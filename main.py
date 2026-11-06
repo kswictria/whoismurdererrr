@@ -1,13 +1,15 @@
 
 import os
 import html
+import json
 import streamlit as st
+import streamlit.components.v1 as components
 from google import genai
 from google.genai import types
 
-# ==========================================
-# 1. Streamlit 기본 설정
-# ==========================================
+# ==================================================
+# 기본 설정
+# ==================================================
 
 st.set_page_config(
     page_title="방과 후, 사라진 기록",
@@ -16,9 +18,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# ==========================================
-# 2. 게임 데이터
-# ==========================================
+# ==================================================
+# 게임 데이터
+# ==================================================
 
 ROOMS = {
     "교실": {
@@ -120,9 +122,9 @@ CLUES = {
     "쓰레기통": "녹음 내용 공개를 막으려는 메모가 발견되었다."
 }
 
-# ==========================================
-# 3. 게임 상태 초기화
-# ==========================================
+# ==================================================
+# 상태 관리
+# ==================================================
 
 def reset_game():
     st.session_state.room = "교실"
@@ -140,9 +142,9 @@ def reset_game():
 if "room" not in st.session_state:
     reset_game()
 
-# ==========================================
-# 4. Gemini API 설정
-# ==========================================
+# ==================================================
+# Gemini API
+# ==================================================
 
 def get_api_key():
     try:
@@ -157,7 +159,6 @@ def get_api_key():
 
 def ask_npc(name, question):
     npc = NPCS[name]
-
     history = st.session_state.chat_history.get(name, [])
 
     evidence = [
@@ -178,7 +179,7 @@ def ask_npc(name, question):
 {chr(10).join(evidence) if evidence else "아직 없음"}
 
 [대화 규칙]
-1. 한국어로 자연스럽게 대답한다.
+1. 반드시 한국어로 자연스럽게 대답한다.
 2. 한 번에 1~4문장으로 대답한다.
 3. 실제 학생처럼 행동한다.
 4. 자신이 알고 있는 사실만 이야기한다.
@@ -196,24 +197,11 @@ def ask_npc(name, question):
 
     if not api_key:
         fallback = {
-            "케이타": (
-                "그 시간에는 교실에 있었어. "
-                "방송실 쪽에서 목소리는 들렸는데 누군지는 몰라."
-            ),
-            "유나": (
-                "난 도서실에 있었어. "
-                "방송실에 대해서는 잘 모르겠는데?"
-            ),
-            "하루": (
-                "파일이 삭제된 건 맞아. "
-                "하지만 난 그 전에 방송실을 나왔어."
-            ),
-            "미나": (
-                "유나가 책을 빌리는 건 봤어. "
-                "그 뒤에는 급히 나갔지."
-            )
+            "케이타": "그 시간에는 교실에 있었어. 방송실 쪽에서 목소리는 들렸는데 누군지는 몰라.",
+            "유나": "난 도서실에 있었어. 방송실에 대해서는 잘 모르겠는데?",
+            "하루": "파일이 삭제된 건 맞아. 하지만 난 그 전에 방송실을 나왔어.",
+            "미나": "유나가 책을 빌리는 건 봤어. 그 뒤에는 급히 나갔지."
         }
-
         return fallback[name] + " [AI 미연결]"
 
     try:
@@ -222,18 +210,11 @@ def ask_npc(name, question):
         contents = []
 
         for msg in history[-12:]:
-            role = (
-                "user"
-                if msg["role"] == "user"
-                else "model"
-            )
-
+            role = "user" if msg["role"] == "user" else "model"
             contents.append(
                 types.Content(
                     role=role,
-                    parts=[
-                        types.Part(text=msg["content"])
-                    ]
+                    parts=[types.Part(text=msg["content"])]
                 )
             )
 
@@ -262,9 +243,9 @@ def ask_npc(name, question):
             "Gemini API 키와 모델 사용 가능 여부를 확인해 줘."
         )
 
-# ==========================================
-# 5. 화면 디자인
-# ==========================================
+# ==================================================
+# 디자인
+# ==================================================
 
 st.markdown("""
 <style>
@@ -338,15 +319,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# 6. 학교 픽셀풍 맵
-# ==========================================
+# ==================================================
+# 학교 화면 SVG 생성
+# ==================================================
 
 def draw_room(room_name):
     room = ROOMS[room_name]
     npc_name = room["npc"]
 
-    # 바닥
     floor = """
     <defs>
       <pattern id="floor" width="40" height="20"
@@ -358,7 +338,6 @@ def draw_room(room_name):
     </defs>
     """
 
-    # 교실 책상
     desks = ""
 
     if room_name == "교실":
@@ -413,7 +392,6 @@ def draw_room(room_name):
               stroke-width="5"/>
         """
 
-    # NPC 캐릭터
     npc_svg = ""
 
     if npc_name:
@@ -456,7 +434,6 @@ def draw_room(room_name):
         </text>
         """
 
-    # 플레이어 캐릭터
     player_svg = """
     <g transform="translate(280,345)"
        shape-rendering="crispEdges">
@@ -488,78 +465,93 @@ def draw_room(room_name):
     """
 
     return f"""
-    <svg viewBox="0 0 600 430"
-         width="100%"
-         xmlns="http://www.w3.org/2000/svg">
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        html, body {{
+            margin: 0;
+            padding: 0;
+            background: #11151e;
+            overflow: hidden;
+        }}
+        svg {{
+            display: block;
+            width: 100%;
+            height: auto;
+            max-height: 430px;
+        }}
+      </style>
+    </head>
+    <body>
+      <svg viewBox="0 0 600 430"
+           xmlns="http://www.w3.org/2000/svg">
 
-      {floor}
+        {floor}
 
-      <rect width="600" height="430"
-            fill="#161a22"/>
+        <rect width="600" height="430"
+              fill="#161a22"/>
 
-      <rect x="20" y="20"
-            width="560" height="390"
-            fill="url(#floor)"
-            stroke="#393b40"
-            stroke-width="12"/>
+        <rect x="20" y="20"
+              width="560" height="390"
+              fill="url(#floor)"
+              stroke="#393b40"
+              stroke-width="12"/>
 
-      <rect x="20" y="20"
-            width="560" height="50"
-            fill="#38352f"/>
+        <rect x="20" y="20"
+              width="560" height="50"
+              fill="#38352f"/>
 
-      <rect x="50" y="30"
-            width="130" height="25"
-            fill="#586b77"/>
+        <rect x="50" y="30"
+              width="130" height="25"
+              fill="#586b77"/>
 
-      <rect x="420" y="30"
-            width="130" height="25"
-            fill="#586b77"/>
+        <rect x="420" y="30"
+              width="130" height="25"
+              fill="#586b77"/>
 
-      {desks}
-      {npc_svg}
-      {player_svg}
+        {desks}
+        {npc_svg}
+        {player_svg}
 
-      <rect x="30" y="365"
-            width="150" height="35"
-            fill="#10141d"
-            stroke="#aab0bb"/>
+        <rect x="30" y="365"
+              width="150" height="35"
+              fill="#10141d"
+              stroke="#aab0bb"/>
 
-      <text x="105" y="389"
-            text-anchor="middle"
-            fill="white"
-            font-size="18">
-        {html.escape(room_name)}
-      </text>
-
-    </svg>
+        <text x="105" y="389"
+              text-anchor="middle"
+              fill="white"
+              font-size="18">
+          {html.escape(room_name)}
+        </text>
+      </svg>
+    </body>
+    </html>
     """
 
-# ==========================================
-# 7. 게임 화면
-# ==========================================
+# ==================================================
+# 게임 메인 화면
+# ==================================================
 
 st.title("방과 후, 사라진 기록")
 st.caption("AFTER SCHOOL: THE MISSING RECORD")
 
-# 엔딩 화면
 if st.session_state.ending is not None:
 
     if st.session_state.ending == "success":
         st.success("사건 해결!")
-
         st.write(
             "유나는 자신의 비밀이 담긴 녹음 파일을 "
             "숨기기 위해 방송실에 들어갔다."
         )
-
         st.write(
             "출입 기록과 파일 삭제 기록의 모순을 "
             "밝혀내면서 사건의 진실이 드러났다."
         )
-
     else:
         st.error("수사 실패")
-
         st.write(
             "증거가 부족하거나 잘못된 인물을 지목했다."
         )
@@ -572,9 +564,9 @@ if st.session_state.ending is not None:
 
 left, right = st.columns([2, 1], gap="large")
 
-# ==========================================
-# 8. 왼쪽: 맵과 탐색
-# ==========================================
+# ==================================================
+# 왼쪽: 학교 화면과 탐색
+# ==================================================
 
 with left:
 
@@ -585,9 +577,12 @@ with left:
         unsafe_allow_html=True
     )
 
-    st.markdown(
+    # SVG를 Markdown으로 출력하지 않고
+    # HTML 컴포넌트로 렌더링한다.
+    components.html(
         draw_room(st.session_state.room),
-        unsafe_allow_html=True
+        height=440,
+        scrolling=False
     )
 
     speaker = html.escape(st.session_state.speaker)
@@ -649,9 +644,9 @@ with left:
 
                 st.rerun()
 
-# ==========================================
-# 9. 오른쪽: 수사 수첩과 NPC 대화
-# ==========================================
+# ==================================================
+# 오른쪽: 수사 수첩과 NPC 대화
+# ==================================================
 
 with right:
 
@@ -677,27 +672,22 @@ with right:
         st.caption("아직 발견한 단서가 없다.")
 
     st.divider()
-
     st.markdown("### 인물 심문")
 
     current_npc = room_data["npc"]
 
     if current_npc:
-
         st.write(
             f"**{current_npc}**이(가) 이곳에 있다."
         )
 
-        if st.button(
-            f"{current_npc}에게 말 걸기"
-        ):
+        if st.button(f"{current_npc}에게 말 걸기"):
             st.session_state.selected_npc = current_npc
             st.session_state.speaker = current_npc
             st.session_state.dialogue = (
                 NPCS[current_npc]["intro"]
             )
             st.rerun()
-
     else:
         st.caption("이 장소에는 아무도 없다.")
 
@@ -705,7 +695,6 @@ with right:
         current_npc
         and st.session_state.selected_npc == current_npc
     ):
-
         with st.form(
             key=f"chat_form_{current_npc}",
             clear_on_submit=True
@@ -714,10 +703,7 @@ with right:
                 "질문 입력",
                 placeholder="5시 20분에 어디 있었어?"
             )
-
-            submitted = st.form_submit_button(
-                "질문하기"
-            )
+            submitted = st.form_submit_button("질문하기")
 
         if submitted and question.strip():
 
@@ -742,7 +728,6 @@ with right:
 
             st.session_state.speaker = current_npc
             st.session_state.dialogue = answer
-
             st.rerun()
 
         history = st.session_state.chat_history.get(
@@ -757,13 +742,11 @@ with right:
                         if msg["role"] == "user"
                         else current_npc
                     )
-
                     st.markdown(
                         f"**{who}:** {msg['content']}"
                     )
 
     st.divider()
-
     st.markdown("### 최종 추리")
 
     suspect = st.selectbox(
@@ -775,7 +758,6 @@ with right:
         "범인 지목하기",
         type="primary"
     ):
-
         required_clues = {
             "출입 기록",
             "컴퓨터"
@@ -788,7 +770,6 @@ with right:
             and required_clues.issubset(collected)
         ):
             st.session_state.ending = "success"
-
         else:
             st.session_state.ending = "failure"
 
